@@ -19,6 +19,22 @@
             width: 100% !important;
             height: 100% !important;
         }
+
+        /* أنماط الطباعة للتصدير إلى PDF */
+        @media print {
+            body { background-color: white !important; overflow: visible !important; height: auto !important; }
+            #root { display: none !important; }
+            .print-only { display: block !important; direction: rtl !important; padding: 40px !important; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 12px; text-align: right; }
+            th { background-color: #f8f9fa !important; color: #1e40af !important; }
+            .status-valid { color: #16a34a; font-weight: bold; }
+            .status-error { color: #dc2626; font-weight: bold; }
+            .report-header { text-align: center; border-bottom: 3px solid #1e40af; padding-bottom: 20px; margin-bottom: 30px; }
+            .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
+            .stat-card { border: 1px solid #e5e7eb; padding: 15px; border-radius: 10px; text-align: center; }
+        }
+        .print-only { display: none; }
     </style>
 <script type="importmap">
 {
@@ -32,10 +48,11 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body>
     <div id="root"></div>
+    <!-- حاوية مخفية مخصصة للطباعة فقط -->
+    <div id="print-area" class="print-only"></div>
     <script type="module" src="/index.tsx"></script>
 </body>
 </html>
