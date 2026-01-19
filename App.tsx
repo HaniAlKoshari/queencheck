@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Scanner from './components/Scanner';
 import Overlay from './components/Overlay';
 import { ScanRecord, ScanStatus } from './types';
 import { audioService } from './services/audioService';
 
-const APP_KEY = 'queencheck_db_prod';
+const APP_KEY = 'queencheck_db_prod_v2';
 const TOTAL_INVITATIONS = 500;
 
 const App: React.FC = () => {
@@ -16,16 +15,19 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'scanner' | 'history'>('scanner');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // قفل أمان لمنع المعالجة المتعددة في نفس الوقت
+  // ذاكرة فورية (Ref) للتحقق الفوري من التكرار دون انتظار تحديث الـ State
+  const scannedIdsRef = useRef<Set<string>>(new Set());
   const isProcessingRef = useRef(false);
 
-  // Load data
+  // تحميل البيانات عند بدء التشغيل
   useEffect(() => {
     const saved = localStorage.getItem(APP_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setScannedIds(parsed.scannedIds || []);
+        const ids = parsed.scannedIds || [];
+        setScannedIds(ids);
+        scannedIdsRef.current = new Set(ids);
         setHistory((parsed.history || []).map((h: any) => ({
           ...h,
           timestamp: new Date(h.timestamp)
@@ -36,45 +38,59 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Save data
+  // حفظ البيانات عند التغيير
   useEffect(() => {
-    localStorage.setItem(APP_KEY, JSON.stringify({ scannedIds, history }));
+    localStorage.setItem(APP_KEY, JSON.stringify({ 
+      scannedIds, 
+      history 
+    }));
   }, [scannedIds, history]);
 
   const handleScan = useCallback((decodedText: string) => {
-    // إذا كان هناك عملية جارية أو نافذة مفتوحة، نرفض المسح الجديد
+    // 1. منع المعالجة إذا كان هناك تنبيه مفتوح أو عملية جارية
     if (isProcessingRef.current || status !== 'idle') return;
 
-    isProcessingRef.current = true;
+    isProcessingRef.current = true; // تفعيل القفل فوراً
+    
     const rawId = decodedText.trim();
     const num = parseInt(rawId, 10);
+    // تنسيق الرقم (مثلاً 1 يصبح 001) إذا كان رقماً صحيحاً، وإلا نستخدم النص الخام
     const formattedId = !isNaN(num) && num > 0 ? num.toString().padStart(3, '0') : rawId;
 
-    console.log("Processing Scan:", formattedId);
+    console.log("Checking Scan:", formattedId);
 
-    // التحقق من التكرار أولاً (باستخدام الحالة الحالية)
-    if (scannedIds.includes(formattedId)) {
+    // 2. التحقق من التكرار باستخدام الذاكرة الفورية (الأسرع على الإطلاق)
+    if (scannedIdsRef.current.has(formattedId)) {
+      console.warn("Duplicate Detected:", formattedId);
       setStatus('error-duplicate');
       setMessage(`هذه الدعوة (#${formattedId}) تم استخدامها مسبقاً!`);
       audioService.playError();
       addHistory(formattedId, 'duplicate');
+      return; // توقف هنا
     } 
-    // التحقق من صحة الرقم
-    else if (isNaN(num) || num < 1 || num > TOTAL_INVITATIONS) {
+
+    // 3. التحقق من صحة الرقم ونطاقه
+    if (isNaN(num) || num < 1 || num > TOTAL_INVITATIONS) {
       setStatus('error-invalid');
-      setMessage(`الرمز (${rawId}) غير موجود في قاعدة البيانات.`);
+      setMessage(`الرمز (${rawId}) غير معتمد أو خارج النطاق.`);
       audioService.playError();
       addHistory(rawId, 'invalid');
     } 
-    // دعوة صحيحة وجديدة
+    // 4. دعوة صحيحة وجديدة
     else {
+      console.log("Success Scan:", formattedId);
       setStatus('success');
       setMessage(`تم تفعيل الدعوة رقم ${formattedId}. مرحباً بك.`);
       audioService.playSuccess();
+      
+      // تحديث الذاكرة الفورية فوراً
+      scannedIdsRef.current.add(formattedId);
+      
+      // تحديث الواجهة والـ State
       setScannedIds(prev => [...prev, formattedId]);
       addHistory(formattedId, 'valid');
     }
-  }, [scannedIds, status]);
+  }, [status]); // قللنا التبعيات لزيادة الكفاءة
 
   const addHistory = (id: string, status: ScanRecord['status']) => {
     const record: ScanRecord = { id, status, timestamp: new Date() };
@@ -84,15 +100,16 @@ const App: React.FC = () => {
   const handleCloseOverlay = () => {
     setStatus('idle');
     setMessage('');
-    // تحرير القفل للسماح بمسح جديد
+    // تأخير بسيط لفتح القفل لضمان عدم التقاط الكاميرا لنفس الكود مرة أخرى فور الإغلاق
     setTimeout(() => {
       isProcessingRef.current = false;
-    }, 500);
+    }, 800);
   };
 
   const clearAllData = () => {
     if (window.confirm('⚠️ تحذير: سيتم مسح كافة سجلات الحضور. هل أنت متأكد؟')) {
       setScannedIds([]);
+      scannedIdsRef.current.clear();
       setHistory([]);
       localStorage.removeItem(APP_KEY);
     }
@@ -111,7 +128,7 @@ const App: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-black text-gray-900 leading-none">QueenCheck</h1>
-            <span className="text-[9px] font-bold text-blue-500 uppercase tracking-tighter">Security & Verification</span>
+            <span className="text-[9px] font-bold text-blue-500 uppercase tracking-tighter">Security System</span>
           </div>
         </div>
         <button onClick={clearAllData} className="p-2.5 text-gray-400 hover:text-red-500 active:bg-red-50 rounded-xl transition-all">
@@ -120,7 +137,7 @@ const App: React.FC = () => {
       </header>
 
       <div className="p-6 shrink-0">
-        <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-[28px] p-6 text-white shadow-xl shadow-blue-100 relative overflow-hidden">
+        <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-[28px] p-6 text-white shadow-xl shadow-blue-200 relative overflow-hidden">
           <div className="relative z-10 flex justify-between items-end">
             <div>
               <p className="text-xs font-bold text-blue-100 mb-1">إجمالي الحضور</p>
@@ -155,7 +172,7 @@ const App: React.FC = () => {
             onClick={() => setActiveTab('history')}
             className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${activeTab === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}
           >
-            سجل التدقيق
+            السجلات
           </button>
         </div>
       </div>
@@ -165,8 +182,8 @@ const App: React.FC = () => {
           <div className="h-full flex flex-col items-center justify-center space-y-8 py-4">
             <Scanner onScan={handleScan} isProcessing={status !== 'idle'} />
             <div className="text-center">
-               <h3 className="text-lg font-bold text-gray-800">جاهز للمسح</h3>
-               <p className="text-xs text-gray-400 mt-1">يرجى توجيه الكاميرا نحو الرمز</p>
+               <h3 className="text-lg font-bold text-gray-800">الماسح جاهز</h3>
+               <p className="text-xs text-gray-400 mt-1">تلقائي الكشف عن المكررات والرموز</p>
             </div>
           </div>
         ) : (
@@ -182,20 +199,23 @@ const App: React.FC = () => {
             </div>
             {filteredHistory.length > 0 ? (
               filteredHistory.map((rec, i) => (
-                <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-50 flex items-center justify-between">
+                <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-50 flex items-center justify-between animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <div className="flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${rec.status === 'valid' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
                       {rec.status === 'valid' ? '✓' : '✕'}
                     </div>
                     <div>
-                      <h4 className="font-black text-gray-900">رقم الدعوة: {rec.id}</h4>
+                      <h4 className="font-black text-gray-900">دعوة: {rec.id}</h4>
                       <p className="text-[10px] font-bold text-gray-400 mt-0.5">{rec.timestamp.toLocaleTimeString('ar-SA')}</p>
                     </div>
                   </div>
+                  <span className={`text-[9px] px-3 py-1 rounded-full font-black uppercase ${rec.status === 'valid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {rec.status === 'valid' ? 'قبول' : rec.status === 'duplicate' ? 'مكرر' : 'خطأ'}
+                  </span>
                 </div>
               ))
             ) : (
-              <p className="text-center py-20 opacity-30">لا توجد سجلات حالياً</p>
+              <p className="text-center py-20 opacity-30 font-bold">لا توجد سجلات حالياً</p>
             )}
           </div>
         )}
