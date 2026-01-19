@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Scanner from './components/Scanner';
 import Overlay from './components/Overlay';
 import { ScanRecord, ScanStatus } from './types';
@@ -16,6 +16,9 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'scanner' | 'history'>('scanner');
   const [searchTerm, setSearchTerm] = useState('');
   
+  // قفل أمان لمنع المعالجة المتعددة في نفس الوقت
+  const isProcessingRef = useRef(false);
+
   // Load data
   useEffect(() => {
     const saved = localStorage.getItem(APP_KEY);
@@ -39,25 +42,31 @@ const App: React.FC = () => {
   }, [scannedIds, history]);
 
   const handleScan = useCallback((decodedText: string) => {
-    if (status !== 'idle') return;
+    // إذا كان هناك عملية جارية أو نافذة مفتوحة، نرفض المسح الجديد
+    if (isProcessingRef.current || status !== 'idle') return;
 
+    isProcessingRef.current = true;
     const rawId = decodedText.trim();
     const num = parseInt(rawId, 10);
     const formattedId = !isNaN(num) && num > 0 ? num.toString().padStart(3, '0') : rawId;
 
-    // Validation Logic
-    if (isNaN(num) || num < 1 || num > TOTAL_INVITATIONS) {
-      setStatus('error-invalid');
-      setMessage(`الرمز (${rawId}) غير موجود في قاعدة البيانات.`);
-      audioService.playError();
-      addHistory(rawId, 'invalid');
-    } 
-    else if (scannedIds.includes(formattedId)) {
+    console.log("Processing Scan:", formattedId);
+
+    // التحقق من التكرار أولاً (باستخدام الحالة الحالية)
+    if (scannedIds.includes(formattedId)) {
       setStatus('error-duplicate');
       setMessage(`هذه الدعوة (#${formattedId}) تم استخدامها مسبقاً!`);
       audioService.playError();
       addHistory(formattedId, 'duplicate');
     } 
+    // التحقق من صحة الرقم
+    else if (isNaN(num) || num < 1 || num > TOTAL_INVITATIONS) {
+      setStatus('error-invalid');
+      setMessage(`الرمز (${rawId}) غير موجود في قاعدة البيانات.`);
+      audioService.playError();
+      addHistory(rawId, 'invalid');
+    } 
+    // دعوة صحيحة وجديدة
     else {
       setStatus('success');
       setMessage(`تم تفعيل الدعوة رقم ${formattedId}. مرحباً بك.`);
@@ -70,6 +79,15 @@ const App: React.FC = () => {
   const addHistory = (id: string, status: ScanRecord['status']) => {
     const record: ScanRecord = { id, status, timestamp: new Date() };
     setHistory(prev => [record, ...prev]);
+  };
+
+  const handleCloseOverlay = () => {
+    setStatus('idle');
+    setMessage('');
+    // تحرير القفل للسماح بمسح جديد
+    setTimeout(() => {
+      isProcessingRef.current = false;
+    }, 500);
   };
 
   const clearAllData = () => {
@@ -86,7 +104,6 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-[#F7F9FF] safe-area-inset overflow-hidden">
-      {/* App Header */}
       <header className="bg-white px-6 py-4 shadow-sm flex justify-between items-center shrink-0 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
@@ -102,7 +119,6 @@ const App: React.FC = () => {
         </button>
       </header>
 
-      {/* Stats Summary */}
       <div className="p-6 shrink-0">
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-[28px] p-6 text-white shadow-xl shadow-blue-100 relative overflow-hidden">
           <div className="relative z-10 flex justify-between items-end">
@@ -124,13 +140,9 @@ const App: React.FC = () => {
               style={{ width: `${(scannedIds.length / TOTAL_INVITATIONS) * 100}%` }}
             />
           </div>
-          <div className="absolute top-0 right-0 p-2 opacity-10">
-            <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-          </div>
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="px-6 pb-2 shrink-0">
         <div className="bg-gray-200/50 p-1 rounded-2xl flex">
           <button 
@@ -148,63 +160,48 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-y-auto px-6 pt-2 pb-10">
         {activeTab === 'scanner' ? (
           <div className="h-full flex flex-col items-center justify-center space-y-8 py-4">
             <Scanner onScan={handleScan} isProcessing={status !== 'idle'} />
             <div className="text-center">
                <h3 className="text-lg font-bold text-gray-800">جاهز للمسح</h3>
-               <p className="text-xs text-gray-400 mt-1">يرجى توجيه الكاميرا نحو رمز الاستجابة السريع</p>
+               <p className="text-xs text-gray-400 mt-1">يرجى توجيه الكاميرا نحو الرمز</p>
             </div>
           </div>
         ) : (
           <div className="space-y-4">
             <div className="sticky top-0 bg-[#F7F9FF] pt-2 pb-4 z-10">
-              <div className="relative">
-                <input 
-                  type="text" 
-                  placeholder="بحث برقم الدعوة..." 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-4 pr-12 py-4 rounded-2xl border-0 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold"
-                />
-                <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-              </div>
+              <input 
+                type="text" 
+                placeholder="بحث برقم الدعوة..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-4 pr-12 py-4 rounded-2xl border-0 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold"
+              />
             </div>
-
             {filteredHistory.length > 0 ? (
               filteredHistory.map((rec, i) => (
-                <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-50 flex items-center justify-between animate-fade-in">
+                <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-50 flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${rec.status === 'valid' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
                       {rec.status === 'valid' ? '✓' : '✕'}
                     </div>
                     <div>
                       <h4 className="font-black text-gray-900">رقم الدعوة: {rec.id}</h4>
-                      <p className="text-[10px] font-bold text-gray-400 mt-0.5">{rec.timestamp.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
+                      <p className="text-[10px] font-bold text-gray-400 mt-0.5">{rec.timestamp.toLocaleTimeString('ar-SA')}</p>
                     </div>
                   </div>
-                  <span className={`text-[10px] font-black px-3 py-1.5 rounded-full ${
-                    rec.status === 'valid' ? 'bg-green-100 text-green-700' : 
-                    rec.status === 'duplicate' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'
-                  }`}>
-                    {rec.status === 'valid' ? 'سليمة' : rec.status === 'duplicate' ? 'مكررة' : 'غير صالحة'}
-                  </span>
                 </div>
               ))
             ) : (
-              <div className="text-center py-20 opacity-30">
-                <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                <p className="text-sm font-bold">لا توجد سجلات حالياً</p>
-              </div>
+              <p className="text-center py-20 opacity-30">لا توجد سجلات حالياً</p>
             )}
           </div>
         )}
       </main>
 
-      {/* Status Overlays */}
-      <Overlay status={status} message={message} onClose={() => setStatus('idle')} />
+      <Overlay status={status} message={message} onClose={handleCloseOverlay} />
     </div>
   );
 };
