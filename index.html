@@ -12,6 +12,13 @@
         :root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); }
         body { font-family: 'Noto Kufi Arabic', sans-serif; background-color: #F7F9FF; margin: 0; overflow: hidden; height: 100vh; }
         #root { height: 100%; display: flex; flex-direction: column; }
+        /* تحسين مظهر الكاميرا لملء الإطار */
+        #reader video {
+            object-fit: cover !important;
+            border-radius: 1.5rem;
+            width: 100% !important;
+            height: 100% !important;
+        }
     </style>
 <script type="importmap">
 {
