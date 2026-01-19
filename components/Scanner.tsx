@@ -32,8 +32,15 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
       const config = {
         fps: 20,
         qrbox: (viewWidth: number, viewHeight: number) => {
-          const size = Math.min(viewWidth, viewHeight) * 0.75;
-          return { width: size, height: size };
+          // التأكد من أن الحجم لا يقل عن 50 بكسل لتجنب خطأ المكتبة
+          const calculatedSize = Math.min(viewWidth, viewHeight) * 0.75;
+          const finalSize = Math.max(Math.floor(calculatedSize), 150); 
+          // إذا كان عرض الشاشة صغيراً جداً، نضمن أن القيمة لا تقل عن 50 أبداً
+          const safeSize = Math.min(finalSize, viewWidth - 20, viewHeight - 20);
+          return { 
+            width: Math.max(safeSize, 50), 
+            height: Math.max(safeSize, 50) 
+          };
         },
         aspectRatio: 1.0,
       };
@@ -56,13 +63,12 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
         setHasPermission(false);
         setError({ message: "يرجى منح صلاحية الكاميرا", type: "auth" });
       } else {
-        setError({ message: "فشل في تشغيل الكاميرا", type: "tech" });
+        setError({ message: "فشل في تشغيل الكاميرا - يرجى المحاولة مرة أخرى", type: "tech" });
       }
     }
   }, [onScan]);
 
   useEffect(() => {
-    // تأخير بسيط للتأكد من رندر الحاوية
     const timer = setTimeout(() => {
       startScanner();
     }, 500);
