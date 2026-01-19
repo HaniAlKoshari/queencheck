@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
@@ -14,6 +15,13 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
   const [isRetrying, setIsRetrying] = useState(false);
   const restartTimeoutRef = useRef<number | null>(null);
   const [restarts, setRestarts] = useState(0);
+
+  // مرجع لتتبع حالة المعالجة داخلياً بشكل فوري
+  const internalProcessingRef = useRef(false);
+
+  useEffect(() => {
+    internalProcessingRef.current = isProcessing;
+  }, [isProcessing]);
 
   const stopScanner = async () => {
     if (scannerRef.current && scannerRef.current.isScanning) {
@@ -32,7 +40,6 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
     setIsRetrying(false);
 
     try {
-      // محاولة الوصول للكاميرا بشكل صريح أولاً
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       stream.getTracks().forEach(track => track.stop());
       setHasPermission(true);
@@ -54,14 +61,15 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
         { facingMode: "environment" },
         config,
         (decodedText) => {
-          if (!isProcessing) {
+          // التحقق من القفل الداخلي والارتباط الخارجي لمنع التكرار
+          if (!internalProcessingRef.current && !isProcessing) {
             onScan(decodedText);
           }
         },
         () => {}
       );
 
-      console.log(`[Scanner] Started. Retries so far: ${restarts}`);
+      console.log(`[Scanner] Started. Retries: ${restarts}`);
     } catch (err: any) {
       console.error("[Scanner] Init failed:", err.name);
       
@@ -75,7 +83,7 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
         };
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
         errorData = { 
-          message: "الكاميرا قيد الاستخدام من تطبيق آخر أو معطلة برمجياً. سنحاول إعادة الاتصال...",
+          message: "الكاميرا قيد الاستخدام من تطبيق آخر. سنحاول إعادة الاتصال...",
           type: 'busy' 
         };
       } else if (err.name === 'NotFoundError') {
@@ -92,7 +100,6 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
 
       setError(errorData);
 
-      // محاولة إعادة تشغيل تلقائي للحالات التقنية فقط
       if (errorData.type !== 'auth' && errorData.type !== 'not-found') {
         setIsRetrying(true);
         if (restartTimeoutRef.current) window.clearTimeout(restartTimeoutRef.current);
@@ -126,7 +133,6 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
 
   return (
     <div className="relative w-full max-w-sm aspect-square mx-auto overflow-hidden rounded-[3.5rem] shadow-2xl border-[12px] border-white bg-neutral-900 flex flex-col items-center justify-center transition-all duration-500">
-      {/* Viewport container that stays square */}
       <div className="absolute inset-0 w-full h-full bg-neutral-900 flex items-center justify-center">
          <div id="reader" className="w-full h-full"></div>
          {!hasPermission && !error && (
@@ -137,7 +143,6 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
          )}
       </div>
       
-      {/* Error UI Card */}
       {error && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-gray-900/95 p-8 text-center backdrop-blur-xl animate-in fade-in zoom-in duration-300">
           <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mb-6 border shadow-2xl ${
@@ -160,12 +165,12 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
                  <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                  <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
               </div>
-              <p className="text-blue-400 text-xs font-black tracking-widest animate-pulse">جاري محاولة الإصلاح التلقائي...</p>
+              <p className="text-blue-400 text-xs font-black tracking-widest animate-pulse">جاري الإصلاح التلقائي...</p>
             </div>
           ) : (
             <button 
               onClick={() => { setRestarts(0); startScanner(); }}
-              className="w-full max-w-[200px] py-4 bg-white text-gray-900 rounded-2xl font-black shadow-xl active:scale-95 transition-all hover:bg-gray-100"
+              className="w-full max-w-[200px] py-4 bg-white text-gray-900 rounded-2xl font-black shadow-xl active:scale-95 transition-all"
             >
               إعادة المحاولة
             </button>
@@ -173,11 +178,9 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
         </div>
       )}
 
-      {/* Active Scanner HUD Overlay */}
       {hasPermission && !error && (
         <>
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
-            {/* Pulsing frame with soft glow */}
             <div className="w-64 h-64 border-2 border-white/5 rounded-[3rem] relative animate-frame-glow">
               <div className="absolute top-0 left-0 w-14 h-14 border-t-4 border-l-4 border-blue-500 rounded-tl-[2rem] -mt-1 -ml-1 shadow-glow-blue"></div>
               <div className="absolute top-0 right-0 w-14 h-14 border-t-4 border-r-4 border-blue-500 rounded-tr-[2rem] -mt-1 -mr-1 shadow-glow-blue"></div>
@@ -188,17 +191,10 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
           
           <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-transparent via-blue-400/80 to-transparent shadow-[0_0_30px_rgba(59,130,246,0.8)] opacity-90 animate-scan-line pointer-events-none z-10"></div>
           
-          {/* Heartbeat activity indicator */}
           <div className="absolute top-8 right-8 flex items-center gap-2 z-20">
              <span className="text-[8px] font-black text-blue-500 uppercase tracking-widest opacity-60">Live</span>
              <div className="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
           </div>
-          
-          {restarts > 0 && (
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-blue-600/20 backdrop-blur-xl text-blue-400 text-[8px] px-5 py-2 rounded-full z-20 border border-blue-500/30 font-black tracking-widest uppercase">
-               Self-Healing Mode: {restarts}
-            </div>
-          )}
         </>
       )}
 
@@ -226,7 +222,6 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, isProcessing }) => {
           object-fit: cover !important;
           width: 100% !important;
           height: 100% !important;
-          transform: scale(1.05); /* Slight zoom for aesthetic */
         }
         #reader {
           opacity: 0;
