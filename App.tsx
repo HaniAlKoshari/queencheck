@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Scanner from './components/Scanner';
 import Overlay from './components/Overlay';
@@ -16,7 +15,6 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'scanner' | 'history'>('scanner');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // المراجع الفورية لمنع أي تأخير في المعالجة
   const scannedIdsRef = useRef<Set<string>>(new Set());
   const isCurrentlyProcessing = useRef(false);
 
@@ -43,16 +41,13 @@ const App: React.FC = () => {
   }, [scannedIds, history]);
 
   const handleScan = useCallback((decodedText: string) => {
-    // قفل فوري صارم: إذا كان هناك معالجة جارية، تجاهل تماماً
     if (isCurrentlyProcessing.current) return;
-    
-    isCurrentlyProcessing.current = true; // تفعيل القفل قبل أي عملية أخرى
+    isCurrentlyProcessing.current = true;
 
     const rawId = decodedText.trim();
     const num = parseInt(rawId, 10);
     const formattedId = !isNaN(num) && num > 0 ? num.toString().padStart(3, '0') : rawId;
 
-    // 1. التحقق من التكرار
     if (scannedIdsRef.current.has(formattedId)) {
       setStatus('error-duplicate');
       setMessage(`هذه الدعوة (#${formattedId}) تم استخدامها مسبقاً!`);
@@ -61,7 +56,6 @@ const App: React.FC = () => {
       return; 
     } 
 
-    // 2. التحقق من النطاق (أكبر من 500 أو غير رقمي)
     if (isNaN(num) || num < 1 || num > TOTAL_INVITATIONS) {
       setStatus('error-invalid');
       setMessage(`هذه الدعوة (#${rawId}) غير موجودة في النظام!`);
@@ -70,7 +64,6 @@ const App: React.FC = () => {
       return;
     } 
 
-    // 3. حالة النجاح
     setStatus('success');
     setMessage(`تم تفعيل الدعوة رقم ${formattedId}. مرحباً بك.`);
     audioService.playSuccess();
@@ -78,8 +71,7 @@ const App: React.FC = () => {
     scannedIdsRef.current.add(formattedId);
     setScannedIds(prev => [...prev, formattedId]);
     addHistory(formattedId, 'valid');
-
-  }, []); // التبعيات فارغة لأننا نعتمد على Refs للمعالجة الفورية
+  }, []);
 
   const addHistory = (id: string, status: ScanRecord['status']) => {
     const record: ScanRecord = { id, status, timestamp: new Date() };
@@ -89,7 +81,6 @@ const App: React.FC = () => {
   const handleCloseOverlay = () => {
     setStatus('idle');
     setMessage('');
-    // تحرير القفل بعد مهلة قصيرة لضمان عدم تكرار المسح فور الإغلاق
     setTimeout(() => {
       isCurrentlyProcessing.current = false;
     }, 1000);
@@ -102,6 +93,69 @@ const App: React.FC = () => {
       setHistory([]);
       localStorage.removeItem(APP_KEY);
     }
+  };
+
+  const exportToPDF = () => {
+    const printArea = document.getElementById('print-area');
+    if (!printArea) return;
+
+    const dateStr = new Date().toLocaleString('ar-SA');
+    const validCount = scannedIds.length;
+    const duplicateCount = history.filter(h => h.status === 'duplicate').length;
+    const invalidCount = history.filter(h => h.status === 'invalid').length;
+
+    const rows = history.map(rec => `
+      <tr>
+        <td>${rec.id}</td>
+        <td class="${rec.status === 'valid' ? 'status-valid' : 'status-error'}">
+          ${rec.status === 'valid' ? 'مقبول' : rec.status === 'duplicate' ? 'مكرر' : 'غير موجود'}
+        </td>
+        <td>${rec.timestamp.toLocaleTimeString('ar-SA')}</td>
+        <td>${rec.timestamp.toLocaleDateString('ar-SA')}</td>
+      </tr>
+    `).join('');
+
+    printArea.innerHTML = `
+      <div class="report-header">
+        <h1 style="font-size: 28px; color: #1e40af; margin-bottom: 5px;">QueenCheck - تقرير تدقيق الحضور</h1>
+        <p style="color: #666;">تاريخ التقرير: ${dateStr}</p>
+      </div>
+      
+      <div class="stats-grid">
+        <div class="stat-card">
+          <p style="font-size: 12px; color: #666; font-weight: bold;">إجمالي المقبولين</p>
+          <h2 style="font-size: 24px; color: #16a34a; margin: 0;">${validCount}</h2>
+        </div>
+        <div class="stat-card">
+          <p style="font-size: 12px; color: #666; font-weight: bold;">إجمالي المكرر</p>
+          <h2 style="font-size: 24px; color: #dc2626; margin: 0;">${duplicateCount}</h2>
+        </div>
+        <div class="stat-card">
+          <p style="font-size: 12px; color: #666; font-weight: bold;">غير موجود بالخطة</p>
+          <h2 style="font-size: 24px; color: #6b7280; margin: 0;">${invalidCount}</h2>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>رقم الدعوة</th>
+            <th>الحالة</th>
+            <th>الوقت</th>
+            <th>التاريخ</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+      
+      <div style="margin-top: 40px; text-align: left; font-size: 10px; color: #aaa;">
+        تم إنشاء هذا التقرير تلقائياً عبر نظام QueenCheck
+      </div>
+    `;
+
+    window.print();
   };
 
   const filteredHistory = useMemo(() => {
@@ -153,9 +207,29 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            <input type="text" placeholder="بحث..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full px-5 py-4 rounded-2xl border-0 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold" />
+            <div className="flex gap-2 sticky top-0 bg-[#F7F9FF] pb-4 z-10">
+              <div className="relative flex-1">
+                <input 
+                  type="text" 
+                  placeholder="بحث عن رقم..." 
+                  value={searchTerm} 
+                  onChange={(e) => setSearchTerm(e.target.value)} 
+                  className="w-full px-5 py-4 rounded-2xl border-0 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold" 
+                />
+              </div>
+              <button 
+                onClick={exportToPDF}
+                disabled={history.length === 0}
+                className="bg-blue-600 text-white px-5 rounded-2xl shadow-lg shadow-blue-200 active:scale-95 transition-all disabled:opacity-50 disabled:grayscale flex items-center justify-center"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </button>
+            </div>
+            
             {filteredHistory.map((rec, i) => (
-              <div key={i} className={`p-4 rounded-2xl shadow-sm border flex items-center justify-between ${rec.status === 'valid' ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
+              <div key={i} className={`p-4 rounded-2xl shadow-sm border flex items-center justify-between animate-in fade-in slide-in-from-bottom-2 ${rec.status === 'valid' ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
                 <div className="flex items-center gap-4">
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${rec.status === 'valid' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{rec.status === 'valid' ? '✓' : '✕'}</div>
                   <div><h4 className="font-black text-gray-900">#{rec.id}</h4><p className="text-[10px] font-bold text-gray-400">{rec.timestamp.toLocaleTimeString('ar-SA')}</p></div>
@@ -163,6 +237,13 @@ const App: React.FC = () => {
                 <span className={`text-[10px] font-black px-3 py-1 rounded-lg ${rec.status === 'valid' ? 'text-green-600' : 'text-red-600'}`}>{rec.status === 'valid' ? 'مقبول' : rec.status === 'duplicate' ? 'مكرر' : 'غير موجود'}</span>
               </div>
             ))}
+            
+            {filteredHistory.length === 0 && (
+               <div className="py-20 text-center opacity-20 flex flex-col items-center">
+                  <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                  <p className="font-bold">السجل فارغ</p>
+               </div>
+            )}
           </div>
         )}
       </main>
