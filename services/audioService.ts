@@ -1,10 +1,12 @@
-
 class AudioService {
   private audioContext: AudioContext | null = null;
 
-  private init() {
+  public init() {
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume();
     }
   }
 
@@ -16,9 +18,6 @@ class AudioService {
 
   public playSuccess() {
     this.init();
-    if (!this.audioContext || this.audioContext.state === 'suspended') {
-      this.audioContext?.resume();
-    }
     if (!this.audioContext) return;
 
     this.vibrate(50);
@@ -39,32 +38,30 @@ class AudioService {
 
   public playError() {
     this.init();
-    if (!this.audioContext || this.audioContext.state === 'suspended') {
-      this.audioContext?.resume();
-    }
     if (!this.audioContext) return;
 
-    // اهتزاز قوي ومكثف
-    this.vibrate([300, 100, 300, 100, 300]);
+    // اهتزاز قوي ومكثف للخطأ
+    this.vibrate([400, 100, 400, 100, 400]);
 
-    // نغمة Siren حادة
     const playTone = (freq: number, start: number) => {
       const osc = this.audioContext!.createOscillator();
       const gain = this.audioContext!.createGain();
-      osc.type = 'sawtooth';
+      osc.type = 'sawtooth'; // صوت حاد ومزعج
       osc.frequency.setValueAtTime(freq, start);
-      osc.frequency.linearRampToValueAtTime(freq / 2, start + 0.4);
-      gain.gain.setValueAtTime(0.5, start);
-      gain.gain.linearRampToValueAtTime(0.01, start + 0.4);
+      osc.frequency.linearRampToValueAtTime(freq / 1.5, start + 0.5);
+      
+      gain.gain.setValueAtTime(0.6, start);
+      gain.gain.linearRampToValueAtTime(0.01, start + 0.5);
+      
       osc.connect(gain);
       gain.connect(this.audioContext!.destination);
       osc.start(start);
-      osc.stop(start + 0.4);
+      osc.stop(start + 0.5);
     };
 
-    playTone(440, this.audioContext.currentTime);
-    playTone(440, this.audioContext.currentTime + 0.2);
-    playTone(440, this.audioContext.currentTime + 0.4);
+    // نغمتين متتاليتين عاليتين
+    playTone(520, this.audioContext.currentTime);
+    playTone(520, this.audioContext.currentTime + 0.25);
   }
 }
 
