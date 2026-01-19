@@ -18,6 +18,17 @@ const App: React.FC = () => {
   const scannedIdsRef = useRef<Set<string>>(new Set());
   const isCurrentlyProcessing = useRef(false);
 
+  // تنشيط محرك الصوت عند أول لمسة للشاشة (ضروري لسياسة المتصفحات)
+  useEffect(() => {
+    const handleInit = () => audioService.init();
+    window.addEventListener('click', handleInit, { once: true });
+    window.addEventListener('touchstart', handleInit, { once: true });
+    return () => {
+      window.removeEventListener('click', handleInit);
+      window.removeEventListener('touchstart', handleInit);
+    };
+  }, []);
+
   useEffect(() => {
     const saved = localStorage.getItem(APP_KEY);
     if (saved) {
@@ -48,22 +59,25 @@ const App: React.FC = () => {
     const num = parseInt(rawId, 10);
     const formattedId = !isNaN(num) && num > 0 ? num.toString().padStart(3, '0') : rawId;
 
+    // 1. فحص التكرار (إنذار طوارئ)
     if (scannedIdsRef.current.has(formattedId)) {
       setStatus('error-duplicate');
       setMessage(`هذه الدعوة (#${formattedId}) تم استخدامها مسبقاً!`);
-      audioService.playError();
+      audioService.playError(); // صوت عالي واهتزاز
       addHistory(formattedId, 'duplicate');
       return; 
     } 
 
+    // 2. فحص النطاق فوق 500 (إنذار طوارئ: غير موجود)
     if (isNaN(num) || num < 1 || num > TOTAL_INVITATIONS) {
       setStatus('error-invalid');
-      setMessage(`هذه الدعوة (#${rawId}) غير موجودة في النظام!`);
-      audioService.playError();
+      setMessage(`الدعوة (#${rawId}) غير موجودة في قاعدة البيانات!`);
+      audioService.playError(); // صوت عالي واهتزاز
       addHistory(rawId, 'invalid');
       return;
     } 
 
+    // 3. حالة النجاح
     setStatus('success');
     setMessage(`تم تفعيل الدعوة رقم ${formattedId}. مرحباً بك.`);
     audioService.playSuccess();
@@ -83,11 +97,11 @@ const App: React.FC = () => {
     setMessage('');
     setTimeout(() => {
       isCurrentlyProcessing.current = false;
-    }, 1000);
+    }, 800);
   };
 
   const clearAllData = () => {
-    if (window.confirm('⚠️ هل أنت متأكد من مسح كافة سجلات الحضور؟')) {
+    if (window.confirm('⚠️ مسح كافة البيانات؟')) {
       setScannedIds([]);
       scannedIdsRef.current.clear();
       setHistory([]);
@@ -100,10 +114,6 @@ const App: React.FC = () => {
     if (!printArea) return;
 
     const dateStr = new Date().toLocaleString('ar-SA');
-    const validCount = scannedIds.length;
-    const duplicateCount = history.filter(h => h.status === 'duplicate').length;
-    const invalidCount = history.filter(h => h.status === 'invalid').length;
-
     const rows = history.map(rec => `
       <tr>
         <td>${rec.id}</td>
@@ -117,44 +127,18 @@ const App: React.FC = () => {
 
     printArea.innerHTML = `
       <div class="report-header">
-        <h1 style="font-size: 28px; color: #1e40af; margin-bottom: 5px;">QueenCheck - تقرير تدقيق الحضور</h1>
-        <p style="color: #666;">تاريخ التقرير: ${dateStr}</p>
+        <h1>QueenCheck - تقرير الحضور</h1>
+        <p>التاريخ: ${dateStr}</p>
       </div>
-      
       <div class="stats-grid">
-        <div class="stat-card">
-          <p style="font-size: 12px; color: #666; font-weight: bold;">إجمالي المقبولين</p>
-          <h2 style="font-size: 24px; color: #16a34a; margin: 0;">${validCount}</h2>
-        </div>
-        <div class="stat-card">
-          <p style="font-size: 12px; color: #666; font-weight: bold;">إجمالي المكرر</p>
-          <h2 style="font-size: 24px; color: #dc2626; margin: 0;">${duplicateCount}</h2>
-        </div>
-        <div class="stat-card">
-          <p style="font-size: 12px; color: #666; font-weight: bold;">غير موجود بالخطة</p>
-          <h2 style="font-size: 24px; color: #6b7280; margin: 0;">${invalidCount}</h2>
-        </div>
+        <div class="stat-card"><h3>المقبولين</h3><h2>${scannedIds.length}</h2></div>
+        <div class="stat-card"><h3>المرفوضين</h3><h2>${history.length - scannedIds.length}</h2></div>
       </div>
-
       <table>
-        <thead>
-          <tr>
-            <th>رقم الدعوة</th>
-            <th>الحالة</th>
-            <th>الوقت</th>
-            <th>التاريخ</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
+        <thead><tr><th>رقم الدعوة</th><th>الحالة</th><th>الوقت</th><th>التاريخ</th></tr></thead>
+        <tbody>${rows}</tbody>
       </table>
-      
-      <div style="margin-top: 40px; text-align: left; font-size: 10px; color: #aaa;">
-        تم إنشاء هذا التقرير تلقائياً عبر نظام QueenCheck
-      </div>
     `;
-
     window.print();
   };
 
@@ -164,31 +148,25 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-[#F7F9FF] safe-area-inset overflow-hidden">
-      <header className="bg-white px-6 py-4 shadow-sm flex justify-between items-center shrink-0 border-b border-gray-100">
+      <header className="bg-white px-6 py-4 shadow-sm flex justify-between items-center shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-          </div>
-          <h1 className="text-xl font-black text-gray-900 leading-none tracking-tight">QueenCheck</h1>
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">✓</div>
+          <h1 className="text-xl font-black text-gray-900 leading-none">QueenCheck</h1>
         </div>
-        <button onClick={clearAllData} className="p-2.5 text-gray-300 hover:text-red-500 active:bg-red-50 rounded-xl transition-all">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+        <button onClick={clearAllData} className="p-2 text-gray-300 active:text-red-500">
+           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
         </button>
       </header>
 
       <div className="p-6 shrink-0">
-        <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-[2rem] p-6 text-white shadow-2xl relative overflow-hidden">
-          <div className="relative z-10 flex justify-between items-end">
-            <div>
-              <p className="text-[10px] font-black text-blue-100 mb-1 uppercase tracking-widest">الحضور المعتمد</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-6xl font-black tracking-tighter">{scannedIds.length}</span>
-                <span className="text-lg font-bold text-blue-200">/ {TOTAL_INVITATIONS}</span>
-              </div>
-            </div>
+        <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-[2rem] p-6 text-white shadow-xl">
+          <p className="text-[10px] font-black opacity-80 mb-1">الحضور الحالي</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-6xl font-black">{scannedIds.length}</span>
+            <span className="text-lg opacity-60">/ {TOTAL_INVITATIONS}</span>
           </div>
           <div className="mt-6 bg-white/10 h-3 rounded-full overflow-hidden">
-            <div className="bg-white h-full rounded-full transition-all duration-1000" style={{ width: `${(scannedIds.length / TOTAL_INVITATIONS) * 100}%` }} />
+            <div className="bg-white h-full transition-all duration-1000" style={{ width: `${(scannedIds.length / TOTAL_INVITATIONS) * 100}%` }} />
           </div>
         </div>
       </div>
@@ -202,48 +180,24 @@ const App: React.FC = () => {
 
       <main className="flex-1 overflow-y-auto px-6 py-4">
         {activeTab === 'scanner' ? (
-          <div className="h-full flex flex-col items-center justify-center space-y-6">
+          <div className="h-full flex flex-col items-center justify-center">
             <Scanner onScan={handleScan} isProcessing={status !== 'idle'} />
           </div>
         ) : (
           <div className="space-y-4">
             <div className="flex gap-2 sticky top-0 bg-[#F7F9FF] pb-4 z-10">
-              <div className="relative flex-1">
-                <input 
-                  type="text" 
-                  placeholder="بحث عن رقم..." 
-                  value={searchTerm} 
-                  onChange={(e) => setSearchTerm(e.target.value)} 
-                  className="w-full px-5 py-4 rounded-2xl border-0 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold" 
-                />
-              </div>
-              <button 
-                onClick={exportToPDF}
-                disabled={history.length === 0}
-                className="bg-blue-600 text-white px-5 rounded-2xl shadow-lg shadow-blue-200 active:scale-95 transition-all disabled:opacity-50 disabled:grayscale flex items-center justify-center"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </button>
+              <input type="text" placeholder="بحث..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="flex-1 px-5 py-4 rounded-2xl border-0 shadow-sm font-bold outline-none" />
+              <button onClick={exportToPDF} className="bg-blue-600 text-white px-5 rounded-2xl shadow-lg active:scale-95">PDF</button>
             </div>
-            
             {filteredHistory.map((rec, i) => (
-              <div key={i} className={`p-4 rounded-2xl shadow-sm border flex items-center justify-between animate-in fade-in slide-in-from-bottom-2 ${rec.status === 'valid' ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
+              <div key={i} className={`p-4 rounded-2xl shadow-sm border flex items-center justify-between ${rec.status === 'valid' ? 'bg-white border-gray-100' : 'bg-red-50 border-red-100'}`}>
                 <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${rec.status === 'valid' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{rec.status === 'valid' ? '✓' : '✕'}</div>
-                  <div><h4 className="font-black text-gray-900">#{rec.id}</h4><p className="text-[10px] font-bold text-gray-400">{rec.timestamp.toLocaleTimeString('ar-SA')}</p></div>
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${rec.status === 'valid' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{rec.status === 'valid' ? '✓' : '✕'}</div>
+                  <div><h4 className="font-black">#{rec.id}</h4><p className="text-[10px] text-gray-400">{rec.timestamp.toLocaleTimeString('ar-SA')}</p></div>
                 </div>
-                <span className={`text-[10px] font-black px-3 py-1 rounded-lg ${rec.status === 'valid' ? 'text-green-600' : 'text-red-600'}`}>{rec.status === 'valid' ? 'مقبول' : rec.status === 'duplicate' ? 'مكرر' : 'غير موجود'}</span>
+                <span className={`text-[10px] font-black ${rec.status === 'valid' ? 'text-green-600' : 'text-red-600'}`}>{rec.status === 'valid' ? 'مقبول' : rec.status === 'duplicate' ? 'مكرر' : 'غير موجود'}</span>
               </div>
             ))}
-            
-            {filteredHistory.length === 0 && (
-               <div className="py-20 text-center opacity-20 flex flex-col items-center">
-                  <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                  <p className="font-bold">السجل فارغ</p>
-               </div>
-            )}
           </div>
         )}
       </main>
