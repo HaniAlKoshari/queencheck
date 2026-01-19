@@ -1,6 +1,16 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+
+// تسجيل الـ Service Worker لتمكين ميزة تثبيت التطبيق
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.log('Service Worker registration failed: ', err);
+    });
+  });
+}
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
