@@ -10,9 +10,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;600;700;900&display=swap" rel="stylesheet">
     <style>
         :root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); }
-        body { font-family: 'Noto Kufi Arabic', sans-serif; background-color: #F7F9FF; margin: 0; overflow: hidden; height: 100vh; }
+        body { font-family: 'Noto Kufi Arabic', sans-serif; background-color: #F7F9FF; margin: 0; overflow: hidden; height: 100vh; touch-action: manipulation; }
         #root { height: 100%; display: flex; flex-direction: column; }
-        /* تحسين مظهر الكاميرا لملء الإطار */
+        
         #reader video {
             object-fit: cover !important;
             border-radius: 1.5rem;
@@ -20,7 +20,6 @@
             height: 100% !important;
         }
 
-        /* أنماط الطباعة للتصدير إلى PDF */
         @media print {
             body { background-color: white !important; overflow: visible !important; height: auto !important; }
             #root { display: none !important; }
@@ -39,8 +38,8 @@
 <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
     "react/": "https://esm.sh/react@^19.2.3/",
     "html5-qrcode": "https://esm.sh/html5-qrcode@^2.3.8",
     "vite": "https://esm.sh/vite@^7.3.1",
@@ -51,7 +50,6 @@
 </head>
 <body>
     <div id="root"></div>
-    <!-- حاوية مخفية مخصصة للطباعة فقط -->
     <div id="print-area" class="print-only"></div>
     <script type="module" src="/index.tsx"></script>
 </body>
